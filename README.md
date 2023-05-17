@@ -12,8 +12,15 @@ The package contains binaries from [Sanskrit Heritage Engine (SH)](https://sansk
 
 To run sandhi\_vicchedika.py:
 
-1. python3
-2. devtrans (used for transliteration to and fro various notations, installed via pip)
+1. ocaml, ocamlbuild, camlp4
+    
+    For Ubuntu 19.10 and older, install ocaml(4.07.1), ocamlbuild(0.14.0), camlp4(4.07.1). For Ubuntu 20.04 and later:
+```
+sudo apt install ocaml ocamlbuild camlp4
+```
+    
+2. python3
+3. devtrans (used for transliteration to and fro various notations, installed via pip)
 
 ```
 pip3 install devtrans

@@ -228,7 +228,9 @@ def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
         sys.exit(1)
     
     t_i_text, t_i_enc = input_transliteration(input_text.strip(), input_encoding)
-    input_list = list(filter(None, (t_i_text.strip()).split(".")))
+    i_list = [sent.split(".") for sent in t_i_text.split("\n")]
+    i_list_flattened = [item.strip() for sublist in i_list for item in sublist]
+    input_list = list(filter(None, i_list_flattened))
     
     output_list = []
     for i in range(len(input_list)):
@@ -260,7 +262,9 @@ def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
         first_seg, out_enc = output_transliteration(first, output_encoding)
         output_list.append(first_seg)
     
-    delimiter = " . " if output_encoding == "roma" else " । "
+    # delimiter = " . " if output_encoding == "roma" else " । "
+    # Temporarily setting the output delimiter as newline
+    delimiter = "\n"
     output_str = delimiter.join(output_list)
     
     ofile = open(output_file, 'w')
