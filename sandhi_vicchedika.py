@@ -113,11 +113,13 @@ def run_sh(cgi_file, input_text, input_encoding, lex="MW", sentence_mode="t",
     
     time_out = 30
     
+    out_enc = output_encoding if output_encoding in ["roma", "deva"] else "roma"
+    
     env_vars = [
         "lex=" + lex,
         "st=" + sentence_mode,
         "us=" + us,
-        "font=" + output_encoding,
+        "font=" + out_enc,
         "t=" + input_encoding,
         "text=" + input_text,#.replace(" ", "+"),
         "mode=" + segmentation_mode,
@@ -288,7 +290,7 @@ def main():
     )
     parser.add_argument(
         "output_enc", default="roma",
-        choices=["deva", "roma"],
+        choices=["deva", "roma", "WX"],
         help="output encoding"
     )
     parser.add_argument(
