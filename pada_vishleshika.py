@@ -9,6 +9,8 @@ import json
 
 # import devtrans as dt
 from devconvert import dev2wx, dev2slp, iast2slp, slp2iast, slp2wx, slp2dev, wx2slp, slp2tex
+# Import roots when deeper roots are required
+# import roots as rt
 
 
 segmentation_modes = {
@@ -135,6 +137,51 @@ def run_sh(cgi_file, input_text, input_encoding, lex="MW", us="f",
     return result
 
 
+def identify_stem_root(d_stem, base, d_morph, i_morphs):
+    """ The output JSON object keys derived_stem and base are modified
+        to stem and root based on the inflectional and derivational
+        morphological analyses
+    """
+
+    root = ""
+    stem = ""
+
+    verb_identifiers = [
+        "pr.", "imp.", "opt.", "impft.", "inj.", "subj.", "pft.", "plp.",
+        "fut.", "cond." "aor.", "ben.", "abs.", "inf."
+    ]
+
+    noun_identifiers = [
+        "nom.", "acc.", "i.", "dat.", "abl.", "g.", "loc.", "voc.", "iic.",
+        "iiv.", "part.", "prep.", "conj.", "adv.", "tasil", "ind."
+    ]
+
+    if d_morph:
+        root = base
+        stem = d_stem
+    else:
+        morph_keys = " ".join(i_morphs).split(" ")
+        for m in morph_keys:
+            if m in verb_identifiers:
+                root = d_stem
+                break
+            if m in noun_identifiers:
+                stem = d_stem
+                
+                # The following conditions are present for stems which
+                # are derived from roots but SH does not produce a 
+                # derivational morphological analysis
+                # if d_stem in rt.sh_roots:
+                #     root = d_stem
+                # elif d_stem.split("#")[0] in rt.scl_roots:
+                #     root = d_stem.split("#")[0]
+                # else:
+                #     stem = d_stem
+                break
+    
+    return (root, stem)
+
+
 def get_morphological_analyses(input_out_enc, result_json, out_enc):
     """ Returns the results from the JSON
     """
@@ -154,10 +201,12 @@ def get_morphological_analyses(input_out_enc, result_json, out_enc):
             d_morph = m.get("derivational_morph", "")
             i_morphs = m.get("inflectional_morphs", [])
 
+            root, stem = identify_stem_root(d_stem, base, d_morph, i_morphs)
+            
             new_item = {}
             new_item["word"] = output_transliteration(word, out_enc)[0]
-            new_item["derived_stem"] = output_transliteration(d_stem, out_enc)[0]
-            new_item["base"] = output_transliteration(base, out_enc)[0]
+            new_item["stem"] = output_transliteration(stem, out_enc)[0]
+            new_item["root"] = output_transliteration(root, out_enc)[0]
             new_item["derivational_morph"] = d_morph
             new_item["inflectional_morphs"] = i_morphs
 
@@ -246,7 +295,7 @@ def run_sh_text(cgi_file, input_word, input_encoding, lex="MW",
     
     morph_analysis = handle_result(result, input_word, output_encoding)
     
-    print(morph_analysis)
+    print(json.dumps(morph_analysis, ensure_ascii=False))
 
 
 def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
