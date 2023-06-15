@@ -42,15 +42,48 @@ def wx2iast(text):
     return slp2iast.convert(wx2slp.convert(text))
     
 
+def remove_svaras(text):
+    """ Removes svaras
+    """
+
+    new_text = []
+    for char in text:
+        if '\u0951' <= char <= '\u0954':
+            continue
+        # To remove zero width joiner character
+        elif char == '\u200d':
+            continue
+        new_text.append(char)
+    
+    modified_text = "".join(new_text)
+    
+    return modified_text
+
+
 def handle_input(input_text, input_encoding):
     """ Modifies input based on the requirement of the Heritage Engine
     """
     
+    # Remove svaras in the input text as these are not analysed 
+    # properly by the Sanskrit Heritage Segmenter
+    modified_input = remove_svaras(input_text)
+
     # Replace special characters with "." since Heritage Segmenter
     # does not accept special characters except "|", "!", "."
-    modified_input = re.sub(r'[$@#%&*()\[\]=+:;"}{?/,\\]', ' ', input_text)
+    modified_input = re.sub(r'[$@#%&*()\[\]=+:;"}{?/,\\]', ' ', modified_input)
     if not (input_encoding == "RN"):
         modified_input = modified_input.replace("'", " ")
+    
+    # The following condition is added to replace chandrabindu
+    # which comes adjacent to characters, with m or .m 
+    # depending upon its position
+    if input_encoding == "DN":
+        chandrabindu = "ꣳ"
+        if chandrabindu in modified_input:
+            if modified_input[-1] == chandrabindu:
+                modified_input = modified_input.replace("ꣳ", "म्")
+            else:
+                modified_input = modified_input.replace("ꣳ", "ं")
     
     normalized_input = re.sub(r'M$', 'm', modified_input)
     normalized_input = re.sub(r'\.m$', '.m', normalized_input)
@@ -74,6 +107,14 @@ def input_transliteration(input_text, input_enc):
     else:
         trans_input = input_text
         trans_enc = input_enc
+    
+    # The following condition makes sure that the other chandrabindu
+    # which comes on top of other characters is replaced with m
+    if "z" in trans_input:
+        if trans_input[-1] == "z":
+            trans_input = trans_input.replace("z", "m")
+        else:
+            trans_input = trans_input.replace("z", "M")
     
     return (trans_input, trans_enc)
 
@@ -128,13 +169,17 @@ def run_sh(cgi_file, input_text, input_encoding, lex="MW", us="f",
     p = sp.Popen(command, stdout=sp.PIPE, shell=True)
     try:
         outs, errs = p.communicate(timeout=time_out)
+        result = outs.decode('utf-8')
+        st = "Success"
     except sp.TimeoutExpired:
         kill(p.pid)
         result = ""
-    else:
-        result = outs.decode('utf-8')
-    
-    return result
+        st = "Timeout"
+    except Exception as e:
+        result = ""
+        st = "Error"
+
+    return result, st
 
 
 def identify_stem_root(d_stem, base, d_morph, i_morphs):
@@ -221,7 +266,7 @@ def get_morphological_analyses(input_out_enc, result_json, out_enc):
     return analysis_json
     
 
-def handle_result(result, input_word, output_enc):
+def handle_result(result, input_word, output_enc, issue):
     """ Returns the results from the JSON
     """
     
@@ -236,15 +281,11 @@ def handle_result(result, input_word, output_enc):
             result_json = json.loads(result_str)
         except e:
             result_json = {}
-    else:
-        status = "Timeout"
     
     seg = result_json.get("segmentation", [])
     morphs = result_json.get("morph", [])
 
-    if not morphs and not seg:
-        status = "Unknown Anomaly"
-    elif seg:
+    if seg:
         if "error" in seg[0]:
             status = "Error"
         elif "#" in seg[0]:
@@ -252,23 +293,28 @@ def handle_result(result, input_word, output_enc):
         else:
             status = "Success"
     else:
-        status = "Unknown Anomaly"
+        if issue == "Timeout":
+            status = "Timeout"
+        elif issue == "input":
+            status = "Error"
+            seg = ["Error in Input / Output Convention. Please check the input"]
+        else:
+            status = "Unknown Anomaly"
 
     morph_analysis = {}
     
-    input_out_enc = output_transliteration(input_word, output_enc)[0]
     if status in ["Failure", "Timeout", "Unknown Anomaly"]:
-        morph_analysis["input"] = input_out_enc
+        morph_analysis["input"] = input_word
         morph_analysis["status"] = "failed"
     elif status == "Error":
-        morph_analysis["input"] = input_out_enc
+        morph_analysis["input"] = input_word
         morph_analysis["status"] = "error"
         morph_analysis["error"] = seg[0]
     elif status == "Unrecognized":
-        morph_analysis["input"] = input_out_enc
+        morph_analysis["input"] = input_word
         morph_analysis["status"] = "unrecognized"
     else: # Success
-        morph_analysis = get_morphological_analyses(input_out_enc, result_json, output_enc)
+        morph_analysis = get_morphological_analyses(input_word, result_json, output_enc)
     
     return morph_analysis
 
@@ -284,18 +330,27 @@ def run_sh_text(cgi_file, input_word, input_encoding, lex="MW",
     # Uncomment the following to find the morphological analyses of the
     # word by ignoring the special characters.  
     
-    i_word = handle_input(input_word.strip(), input_encoding)
+    issue = ""
+    input_word_out_enc = input_word
+
+    try:
+        i_word = handle_input(input_word.strip(), input_encoding)
+        trans_input, trans_enc = input_transliteration(i_word, input_encoding)
+        input_word_out_enc = output_transliteration(input_word, output_encoding)[0]
+
+        result, issue = run_sh(
+            cgi_file, trans_input, trans_enc, lex, us, output_encoding, 
+            segmentation_mode, stemmer
+        )
+    except Exception as e:
+        result = ""
+        issue = "input"
     
-    trans_input, trans_enc = input_transliteration(i_word, input_encoding)
-    
-    result = run_sh(
-        cgi_file, trans_input, trans_enc, lex, us, output_encoding, 
-        segmentation_mode, stemmer
+    morph_analysis = handle_result(
+        result, input_word_out_enc, output_encoding, issue
     )
-    
-    morph_analysis = handle_result(result, input_word, output_encoding)
-    
-    print(json.dumps(morph_analysis, ensure_ascii=False))
+
+    return morph_analysis
 
 
 def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
@@ -305,7 +360,7 @@ def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
     """
 
     try:
-        ifile = open(input_file, 'r')
+        ifile = open(input_file, 'r', encoding='utf-8')
     except OSError as e:
         print(f"Unable to open {path}: {e}", file=sys.stderr)
         sys.exit(1)
@@ -317,29 +372,19 @@ def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
         print("Specified input file does not have any sentence.")
         sys.exit(1)
     
-    t_i_text, t_i_enc = input_transliteration(input_text.strip(), input_encoding)
-    i_list = [word for word in t_i_text.split("\n")]
+    i_list = [word for word in input_text.strip().split("\n")]
     input_list = list(filter(None, i_list))
-    
+
     output_list = []
     for i in range(len(input_list)):
         input_word = input_list[i].strip()
-        
-        # SH does not accept special characters in the input sequence.  
-        # And it results errors if such characters are found.  
-        # Uncomment the following to get the morphological analysis of
-        # the word by ignoring the special characters.  
-        
-        # input_word = handle_input(input_word.strip(), input_encoding)
-        
-        print(output_transliteration(input_word, output_encoding)[0])
-        
-        result = run_sh(
-            cgi_file, input_word, t_i_enc, lex, us,
-            output_encoding, segmentation_mode, stemmer
+
+        print(input_word)
+
+        morph_analysis = run_sh_text(
+            cgi_file, input_word, input_encoding, lex, us, output_encoding,
+            segmentation_mode, stemmer
         )
-        
-        morph_analysis = handle_result(result, input_word, output_encoding)
         
         output_list.append(morph_analysis)
     
@@ -403,11 +448,12 @@ def main():
             segmentation_mode=seg_mode, stemmer="t"
         )
     elif args.input_text:
-        run_sh_text(
+        res = run_sh_text(
             cgi_file, args.input_text, input_enc, lex="MW",
             us="f", output_encoding=output_enc,
             segmentation_mode=seg_mode, stemmer="t"
         )
+        print(json.dumps(res, ensure_ascii=False))
     else:
         print("Please specify one of text ('-t') or file ('-i & -o')")
         sys.exit()

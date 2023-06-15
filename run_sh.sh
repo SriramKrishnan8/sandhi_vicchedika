@@ -11,9 +11,12 @@
 #python3 sandhi_vicchedika.py DN roma sent best -t "वैधर्म्याच्च न स्वप्नादिव' दित्यादिसूत्रेश्च विश्वस्य सत्यत्वप्रतिपादनादिति"
 
 # For pada_vishleshika: Morphological Analysis
-#python3 pada_vishleshika.py WX WX best -t "rawnaXAwamam"
-#python3 pada_vishleshika.py WX roma best -t "gacCawi"
-#python3 pada_vishleshika.py WX deva best -t "gacMCawi"
-#python3 pada_vishleshika.py DN WX best -t "रामः"
-#python3 pada_vishleshika.py RN WX best -t "prāṇān"
-#python3 pada_vishleshika.py DN deva best -i sample_input_pada_dev.txt -o sample_padas_out.json
+# python3 pada_vishleshika.py WX WX best -t "vi-balam"
+# python3 pada_vishleshika.py WX WX best -t "rawnaXAwamam"
+# python3 pada_vishleshika.py WX roma best -t "gacCawi"
+# python3 pada_vishleshika.py WX deva best -t "gacMCawi"
+# python3 pada_vishleshika.py DN WX best -t "त्व‍ा॒"
+# python3 pada_vishleshika.py DN WX best -t "इन्द्रगाँ"
+# python3 pada_vishleshika.py RN WX best -t "prāṇān"
+# python3 pada_vishleshika.py DN deva best -i outputWords.txt -o sample_padas_out.json
+# python3 pada_vishleshika.py DN deva best -i outputWords_sample.txt -o outputWords_out.json
