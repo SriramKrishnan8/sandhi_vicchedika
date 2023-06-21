@@ -453,7 +453,11 @@ def main():
             us="f", output_encoding=output_enc,
             segmentation_mode=seg_mode, stemmer="t"
         )
-        print(json.dumps(res, ensure_ascii=False))
+        if args.output_file:
+            with open(args.output_file.name, 'w', encoding='utf-8') as o_file:
+                json.dump(res, o_file, ensure_ascii=False)
+        else:
+            print(json.dumps(res, ensure_ascii=False))
     else:
         print("Please specify one of text ('-t') or file ('-i & -o')")
         sys.exit()

@@ -18,5 +18,8 @@
 # python3 pada_vishleshika.py DN WX best -t "त्व‍ा॒"
 # python3 pada_vishleshika.py DN WX best -t "इन्द्रगाँ"
 # python3 pada_vishleshika.py RN WX best -t "prāṇān"
-# python3 pada_vishleshika.py DN deva best -i outputWords.txt -o sample_padas_out.json
+# python3 pada_vishleshika.py DN WX best -t "ते त्व‍ा॒ म॒न्थ॒न्तु॒ प्र॒जया॑ स॒ह इ॒ह गृ॒हा॒ण"
+# python3 pada_vishleshika.py DN deva best -t "तन्वम्"
+# python3 pada_vishleshika.py DN deva best -t "हितम्" -o dt_out.json
+# python3 pada_vishleshika.py DN deva best -i sample_input_pada_dev.txt -o sample_padas_out.json
 # python3 pada_vishleshika.py DN deva best -i outputWords_sample.txt -o outputWords_out.json
