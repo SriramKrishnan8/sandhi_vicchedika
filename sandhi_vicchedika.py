@@ -2,6 +2,10 @@
 
 import os
 import sys
+
+import signal
+import psutil
+
 import subprocess as sp
 
 import argparse
@@ -9,8 +13,9 @@ import argparse
 import re
 import json
 
-#import devtrans as dt
-from devconvert import dev2wx, dev2slp, iast2slp, slp2iast, slp2wx, slp2dev, wx2slp, slp2tex
+from tqdm import tqdm
+
+import devtrans as dt
 
 
 sentence_modes = {
@@ -24,27 +29,6 @@ segmentation_modes = {
 }
 
 cgi_file = "./interface2"
-
-
-def wx2dev(text):
-    """
-    """
-    
-    return slp2dev.convert(wx2slp.convert(text))
-    
-
-def iast2wx(text):
-    """
-    """
-    
-    return slp2wx.convert(iast2slp.convert(text))
-    
-
-def wx2iast(text):
-    """
-    """
-    
-    return slp2iast.convert(wx2slp.convert(text))
     
 
 def handle_input(input_text, input_encoding):
@@ -71,14 +55,23 @@ def input_transliteration(input_text, input_enc):
     trans_enc = ""
     
     if input_enc == "DN":
-        trans_input = dev2wx.convert(input_text)
+        trans_input = dt.dev2wx(input_text)
+        trans_input = trans_input.replace("ळ", "d")
         trans_enc = "WX"
     elif input_enc == "RN":
-        trans_input = iast2wx(input_text)
+        trans_input = dt.iast2wx(input_text)
         trans_enc = "WX"
     else:
         trans_input = input_text
         trans_enc = input_enc
+        
+    # The following condition makes sure that the other chandrabindu
+    # which comes on top of other characters is replaced with m
+    if "z" in trans_input:
+        if trans_input[-1] == "z":
+            trans_input = trans_input.replace("z", "m")
+        else:
+            trans_input = trans_input.replace("z", "M")
     
     return (trans_input, trans_enc)
 
@@ -92,10 +85,10 @@ def output_transliteration(output_text, output_enc):
     trans_enc = ""
     
     if output_enc == "deva":
-        trans_output = wx2dev(output_text)
+        trans_output = dt.wx2dev(output_text)
         trans_enc = "deva"
     elif output_enc == "roma":
-        trans_output = wx2iast(output_text)
+        trans_output = dt.wx2iast(output_text)
         trans_enc = "roma"
     else:
         trans_output = output_text
@@ -130,59 +123,74 @@ def run_sh(cgi_file, input_text, input_encoding, lex="MW", sentence_mode="t",
     query_string = "QUERY_STRING=\"" + "&".join(env_vars) + "\""
     command = query_string + " " + cgi_file
     
-    p = sp.Popen(command, stdout=sp.PIPE, shell=True)
     try:
-        outs, errs = p.communicate(timeout=time_out)
+        p = sp.Popen(command, stdout=sp.PIPE, stderr=sp.PIPE, shell=True)
+        
+        try:
+            outs, errs = p.communicate(timeout=time_out)
+        except sp.TimeoutExpired:
+            parent = psutil.Process(p.pid)
+            for child in parent.children(recursive=True):
+                child.terminate()
+            parent.terminate()
+            raise sp.TimeoutExpired(command, time_out)
     except sp.TimeoutExpired:
-        kill(p.pid)
         result = ""
+        status = "Timeout"
+    except Exception as e:
+        result = ""
+        status = "Failure"
+        print(e)
     else:
         result = outs.decode('utf-8')
+        status = "Success"
     
-    return result
+#    p = sp.Popen(command, stdout=sp.PIPE, shell=True)
+#    try:
+#        outs, errs = p.communicate(timeout=time_out)
+#    except sp.TimeoutExpired:
+#        os.kill(p.pid, SIGTERM)
+#        result = ""
+#        status = "Timeout"
+#    except e:
+#        result = ""
+#        status = "Failure"
+#    else:
+#        result = outs.decode('utf-8')
+#        status = "Success"
+    
+    return result, status
     
 
-def handle_result(result):
+def handle_result(input_sent, result, status, output_encoding):
     """ Returns the results from the JSON
     """
     
     result_json = {}
-    status = "Failure"
     
-    if result:
+    trans_input = output_transliteration(input_sent, output_encoding)[0]
+    
+    if status == "Success":
         try:
             result_str = result.split("\n")[-1]
             result_json = json.loads(result_str)
-            status = "Success"
         except e:
             result_json = {}
+    
+        segs = result_json.get("segmentation", [ input_sent ])
+        
+        if "error" in segs[0]:
+            trans_segs = [ "Error: " + trans_input ]
+        else:
+            trans_segs = [ output_transliteration(seg, output_encoding)[0] for seg in segs ]
+    elif status == "Timeout":
+        trans_segs = [ ("Timeout: " + trans_input) ]
+    elif status == "Failure":
+        trans_segs = [ ("Failure: " + trans_input) ]
     else:
-        status = "Timeout"
+        trans_segs = [ ("Unknown: " + trans_input) ]
     
-    return (status, result_json)
-
-
-def get_segmentations(input_text, result, out_enc):
-    """ Returns the results from the JSON
-    """
-    
-    result_json = {}
-    
-    if result:
-        try:
-            result_str = result.split("\n")[-1]
-            result_json = json.loads(result_str)
-        except e:
-            result_json = {}
-    
-    results = result_json.get("segmentation", [])
-    segs = results if results else [ input_text ]
-    
-    segs_2 = [ input_text ] if "error" in segs[0] else segs
-    
-    segmentations = [output_transliteration(x, out_enc)[0] for x in segs_2]
-    
-    return segmentations
+    return trans_segs
     
 
 def run_sh_text(cgi_file, input_sent, input_encoding, lex="MW",
@@ -201,14 +209,14 @@ def run_sh_text(cgi_file, input_sent, input_encoding, lex="MW",
     
     trans_input, trans_enc = input_transliteration(input_sent, input_encoding)
     
-    result = run_sh(
+    result, status = run_sh(
         cgi_file, trans_input, trans_enc, lex, sentence_mode, us,
         output_encoding, segmentation_mode, pipeline
     )
     
-    segmentations = get_segmentations(input_sent, result, output_encoding)
+    segmentation = handle_result(input_sent, result, status, output_encoding)
     
-    print(segmentations)
+    print(segmentation)
 
 
 def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
@@ -236,7 +244,7 @@ def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
     input_list = list(filter(None, i_list_flattened))
     
     output_list = []
-    for i in range(len(input_list)):
+    for i in tqdm(range(len(input_list))):
         input_sent = input_list[i].strip()
         
         # SH does not accept special characters in the input sequence.  
@@ -247,33 +255,27 @@ def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
         
         # input_sent = handle_input(input_sent.strip(), input_encoding)
         
-        print(input_sent)
+        # print(input_sent)
         
-        result = run_sh(
+        result, status = run_sh(
             cgi_file, input_sent, t_i_enc, lex, sentence_mode, us,
             output_encoding, segmentation_mode, pipeline
         )
         
-        status, result_json = handle_result(result)
-        
-        if status in ["Failure", "Timeout"]:
-            segs = [ input_sent ]
-        else:
-            segs = result_json.get("segmentation", [ input_sent ])
-        
-        first = input_sent if "error" in segs[0] else segs[0]
-        first_seg, out_enc = output_transliteration(first, output_encoding)
-        output_list.append(first_seg)
+        segmentation = handle_result(input_sent, result, status, output_encoding)
+                
+        output_list.append(segmentation)
     
     # delimiter = " . " if output_encoding == "roma" else " । "
     # Temporarily setting the output delimiter as newline
     delimiter = "\n"
-    output_str = delimiter.join(output_list)
+    output_list_updated = [ ",".join(items) for items in output_list ]
+    output_str = delimiter.join(output_list_updated)
     
     ofile = open(output_file, 'w')
     
     ofile.write(output_str)
-    print("\nOutput written to file: " + output_file)
+    print("Output written to file: " + output_file)
     ofile.close()
 
 

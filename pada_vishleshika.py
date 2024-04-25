@@ -1,14 +1,18 @@
+#!/usr/bin/env python3
+
 import os
 import sys
 import subprocess as sp
 
 import argparse
+import multiprocessing as mp
 
 import re
 import json
+from tqdm import tqdm
 
-# import devtrans as dt
-from devconvert import dev2wx, dev2slp, iast2slp, slp2iast, slp2wx, slp2dev, wx2slp, slp2tex
+import devtrans as dt
+
 # Import roots when deeper roots are required
 # import roots as rt
 
@@ -20,27 +24,6 @@ segmentation_modes = {
 
 cgi_file = "./interface2"
 
-
-def wx2dev(text):
-    """
-    """
-    
-    return slp2dev.convert(wx2slp.convert(text))
-    
-
-def iast2wx(text):
-    """
-    """
-    
-    return slp2wx.convert(iast2slp.convert(text))
-    
-
-def wx2iast(text):
-    """
-    """
-    
-    return slp2iast.convert(wx2slp.convert(text))
-    
 
 def remove_svaras(text):
     """ Removes svaras
@@ -68,7 +51,7 @@ def handle_input(input_text, input_encoding):
     # properly by the Sanskrit Heritage Segmenter
     modified_input = remove_svaras(input_text)
 
-    # Replace special characters with "." since Heritage Segmenter
+    # Replace special characters with " " since Heritage Segmenter
     # does not accept special characters except "|", "!", "."
     modified_input = re.sub(r'[$@#%&*()\[\]=+:;"}{?/,\\]', ' ', modified_input)
     if not (input_encoding == "RN"):
@@ -84,6 +67,10 @@ def handle_input(input_text, input_encoding):
                 modified_input = modified_input.replace("ꣳ", "म्")
             else:
                 modified_input = modified_input.replace("ꣳ", "ं")
+        else:
+            pass
+    else:
+        pass
     
     normalized_input = re.sub(r'M$', 'm', modified_input)
     normalized_input = re.sub(r'\.m$', '.m', normalized_input)
@@ -99,16 +86,17 @@ def input_transliteration(input_text, input_enc):
     trans_enc = ""
     
     if input_enc == "DN":
-        trans_input = dev2wx.convert(input_text)
+        trans_input = dt.dev2wx(input_text)
+        trans_input = trans_input.replace("ळ", "d")
         trans_enc = "WX"
     elif input_enc == "RN":
-        trans_input = iast2wx(input_text)
+        trans_input = dt.iast2wx(input_text)
         trans_enc = "WX"
     else:
         trans_input = input_text
         trans_enc = input_enc
     
-    # The following condition makes sure that the other chandrabindu
+    # The following condition makes sure that the chandrabindu
     # which comes on top of other characters is replaced with m
     if "z" in trans_input:
         if trans_input[-1] == "z":
@@ -128,12 +116,12 @@ def output_transliteration(output_text, output_enc):
     trans_enc = ""
     
     if output_enc == "deva":
-        trans_out = wx2dev(output_text)
+        trans_out = dt.wx2dev(output_text)
         num_map = str.maketrans('०१२३४५६७८९', '0123456789')
         trans_output = trans_out.translate(num_map)
         trans_enc = "deva"
     elif output_enc == "roma":
-        trans_output = wx2iast(output_text)
+        trans_output = dt.wx2iast(output_text)
         trans_enc = "roma"
     else:
         trans_output = output_text
@@ -172,7 +160,7 @@ def run_sh(cgi_file, input_text, input_encoding, lex="MW", us="f",
         result = outs.decode('utf-8')
         st = "Success"
     except sp.TimeoutExpired:
-        kill(p.pid)
+        os.kill(p.pid)
         result = ""
         st = "Timeout"
     except Exception as e:
@@ -193,7 +181,7 @@ def identify_stem_root(d_stem, base, d_morph, i_morphs):
 
     verb_identifiers = [
         "pr.", "imp.", "opt.", "impft.", "inj.", "subj.", "pft.", "plp.",
-        "fut.", "cond." "aor.", "ben.", "abs.", "inf."
+        "fut.", "cond.", "aor.", "ben.", "abs.", "inf."
     ]
 
     noun_identifiers = [
@@ -262,6 +250,7 @@ def get_morphological_analyses(input_out_enc, result_json, out_enc):
         analysis_json["status"] = "success"
         analysis_json["segmentation"] = words
         analysis_json["morph"] = new_morphs
+        analysis_json["source"] = "SH"
 
     return analysis_json
     
@@ -336,7 +325,7 @@ def run_sh_text(cgi_file, input_word, input_encoding, lex="MW",
     try:
         i_word = handle_input(input_word.strip(), input_encoding)
         trans_input, trans_enc = input_transliteration(i_word, input_encoding)
-        input_word_out_enc = output_transliteration(input_word, output_encoding)[0]
+        input_word_out_enc = output_transliteration(trans_input, output_encoding)[0]
 
         result, issue = run_sh(
             cgi_file, trans_input, trans_enc, lex, us, output_encoding, 
@@ -351,6 +340,71 @@ def run_sh_text(cgi_file, input_word, input_encoding, lex="MW",
     )
 
     return morph_analysis
+
+
+def process_words_subset(input_list, cgi_file, input_encoding, lex, us,
+                        output_encoding, segmentation_mode, stemmer,
+                        start, end, result_queue):
+    """ """
+    
+    results = []
+    for input_word in input_list[start:end]:
+        res = run_sh_text(
+            cgi_file, input_word, input_encoding, lex, us, output_encoding,
+            segmentation_mode, stemmer
+        )
+        results.append(res)
+    
+    result_queue.put(results)
+
+
+def run_sh_parallely(input_list, cgi_file, input_encoding, lex, us,
+                     output_encoding, segmentation_mode, stemmer):
+    """ """
+    
+    num_processes = mp.cpu_count()
+    chunk_size = len(input_list) // num_processes
+    
+    chunks = [input_list[i:i + chunk_size] for i in range(0, len(input_list), chunk_size)]
+    
+    result_queue = mp.Queue()
+    
+    processes = []
+    for chunk in chunks:
+        cur_args = (
+            chunk, cgi_file, input_encoding, lex, us, output_encoding,
+            segmentation_mode, stemmer, 0, len(chunk), result_queue
+        )
+        process = mp.Process(target=process_words_subset, args=cur_args)
+        processes.append(process)
+        process.start()
+        
+    for process in processes:
+        process.join()
+    
+    results = []
+    while not result_queue.empty():
+        results.extend(result_queue.get())
+        
+    return results
+    
+
+def run_sh_sequentially(input_list, cgi_file, input_encoding, lex, us,
+                        output_encoding, segmentation_mode, stemmer):
+    """ """
+    
+    output_list = []
+    for i in tqdm(range(len(input_list))):
+        input_word = input_list[i].strip()
+
+        morph_analysis = run_sh_text(
+            cgi_file, input_word, input_encoding, lex, us, output_encoding,
+            segmentation_mode, stemmer
+        )
+        
+        output_list.append(morph_analysis)
+    
+    return output_list
 
 
 def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
@@ -375,21 +429,26 @@ def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
     i_list = [word for word in input_text.strip().split("\n")]
     input_list = list(filter(None, i_list))
 
-    output_list = []
-    for i in range(len(input_list)):
-        input_word = input_list[i].strip()
-
-        print(input_word)
-
-        morph_analysis = run_sh_text(
-            cgi_file, input_word, input_encoding, lex, us, output_encoding,
+    # Temporarily parallel processing is disabled
+    parallel = False
+    
+    if parallel:
+        output_list = run_sh_parallely(
+            input_list, cgi_file, input_encoding, lex, us, output_encoding,
             segmentation_mode, stemmer
         )
-        
-        output_list.append(morph_analysis)
+    else:
+        output_list = run_sh_sequentially(
+            input_list, cgi_file, input_encoding, lex, us, output_encoding,
+            segmentation_mode, stemmer
+        )
     
     with open(output_file, 'w', encoding='utf-8') as out_file:
-        json.dump(output_list, out_file, ensure_ascii=False)
+#        if the output is required to be in JSON format
+#        json.dump(output_list, out_file, ensure_ascii=False)
+#        if the output is required to be in a list format
+        output_contents = [ json.dumps(item, ensure_ascii=False) for item in output_list ]
+        out_file.write("\n".join(output_contents))
 
 
 def main():
