@@ -125,39 +125,20 @@ def run_sh(cgi_file, input_text, input_encoding, lex="MW", sentence_mode="t",
     
     try:
         p = sp.Popen(command, stdout=sp.PIPE, stderr=sp.PIPE, shell=True)
-        
-        try:
-            outs, errs = p.communicate(timeout=time_out)
-        except sp.TimeoutExpired:
-            parent = psutil.Process(p.pid)
-            for child in parent.children(recursive=True):
-                child.terminate()
-            parent.terminate()
-            raise sp.TimeoutExpired(command, time_out)
+        outs, errs = p.communicate(timeout=time_out)
     except sp.TimeoutExpired:
+        parent = psutil.Process(p.pid)
+        for child in parent.children(recursive=True):
+            child.terminate()
+            parent.terminate()
         result = ""
         status = "Timeout"
     except Exception as e:
         result = ""
         status = "Failure"
-        print(e)
     else:
         result = outs.decode('utf-8')
         status = "Success"
-    
-#    p = sp.Popen(command, stdout=sp.PIPE, shell=True)
-#    try:
-#        outs, errs = p.communicate(timeout=time_out)
-#    except sp.TimeoutExpired:
-#        os.kill(p.pid, SIGTERM)
-#        result = ""
-#        status = "Timeout"
-#    except e:
-#        result = ""
-#        status = "Failure"
-#    else:
-#        result = outs.decode('utf-8')
-#        status = "Success"
     
     return result, status
     
