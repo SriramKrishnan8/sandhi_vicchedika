@@ -6,6 +6,7 @@ The package contains binaries from [Sanskrit Heritage Engine (SH)](https://sansk
 2. data/ &rarr; contains all the required .rem files (binaries for interface2)
 3. sandhi\_vicchedika.py &rarr; a python wrapper for segmentation of SH
 4. pada\_vishleshika.py &rarr; a python wrapper for morphological analysis of SH
+5. sandhi\_vicchedika\_vedic.py &rarr; a python wrapper for segmentation of SH in Vedic sentences
 6. run.sh &rarr; sample commands to perform the segmentation task with various parameters
 7. sample\_input\_text\_dev.txt, sample\_input\_text\_iast.txt, sample\_input\_pada\_dev.txt &rarr; sample input files
 
@@ -32,6 +33,8 @@ To run sandhi\_vicchedika.py:
 ```
 python3 sandhi_vicchedika.py <input_encoding> <output_encoding> <segmentation_mode> <result_mode> [-t text] [-i input_file] [-o output_file]
 ```
+
+sandhi\_vicchedika\_vedic.py can also be run in the same way. It additinally removes svaras and special characters from the input.
 
 To run pada\_vishleshika.py:
 

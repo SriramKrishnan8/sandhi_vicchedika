@@ -10,6 +10,11 @@
 #python3 sandhi_vicchedika.py DN roma sent best -t "वैधर्म्याच्च न स्वप्नादिव' दित्यादिसूत्रेश्च विश्वस्य सत्यत्वप्रतिपादनादिति"
 #python3 sandhi_vicchedika.py DN deva sent first -t "कश्चित्कान्ताविरहगुरुणा स्वाधिकारात्प्रमत्तः शापेनास्तङ्गमितमहिमा वर्षभोग्येन भर्तुः यक्षश्चक्रे जनकतनयास्नानपुण्योदकेषु स्निग्धच्छायतरुषु वसतिं रामगिर्याश्रमेषु"  for timeout
 
+# For sandhi_vicchedika_vedic: Segmentation (Vedic)
+#python3 sandhi_vicchedika_vedic.py DN deva sent best -t "अग्निमीळे पुरोहितं यज्ञस्य देवमृत्विजम् । होतारं रत्नधातमम् ॥"
+#python3 sandhi_vicchedika_vedic.py DN deva sent first -t "अग्निमीळे पुरोहितं यज्ञस्य देवमृत्विजम् । होतारं रत्नधातमम् ॥"
+#python3 sandhi_vicchedika_vedic.py DN deva sent first -t "अ॒ग्निमी॑ळे पु॒रोहि॑तं य॒ज्ञस्य॑ दे॒वमृ॒त्विज॑म् । होता॑रं रत्न॒धात॑मम् ॥"
+
 # For pada_vishleshika: Morphological Analysis
 # python3 pada_vishleshika.py WX WX best -t "vi-balam"
 # python3 pada_vishleshika.py WX WX best -t "rawnaXAwamam"
