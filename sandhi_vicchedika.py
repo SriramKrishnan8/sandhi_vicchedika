@@ -155,7 +155,7 @@ def handle_result(input_sent, result, status, output_encoding):
         try:
             result_str = result.split("\n")[-1]
             result_json = json.loads(result_str)
-        except e:
+        except Exception as e:
             result_json = {}
     
         segs = result_json.get("segmentation", [ input_sent ])
@@ -209,7 +209,7 @@ def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
     try:
         ifile = open(input_file, 'r')
     except OSError as e:
-        print(f"Unable to open {path}: {e}", file=sys.stderr)
+        print(f"Error: Unable to open {input_file}: {e}", file=sys.stderr)
         sys.exit(1)
         
     input_text = ifile.read()
