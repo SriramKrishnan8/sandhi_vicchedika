@@ -92,11 +92,13 @@ def input_transliteration(input_text, input_enc):
     trans_enc = ""
     
     if input_enc == "DN":
-        trans_input = dt.dev2wx(input_text)
+        trans_input = dt.slp2wx(dt.dev2slp(input_text))
+        trans_input = trans_input.replace("ळ्", "d")
         trans_input = trans_input.replace("ळ", "d")
+        trans_input = trans_input.replace("kdp", "kLp")
         trans_enc = "WX"
     elif input_enc == "RN":
-        trans_input = dt.iast2wx(input_text)
+        trans_input = dt.slp2wx(dt.iast2slp(input_text))
         trans_enc = "WX"
     else:
         trans_input = input_text
@@ -124,12 +126,12 @@ def output_transliteration(output_text, output_enc):
     output_text = output_text.replace("#", "?")
     
     if output_enc == "deva":
-        trans_output = dt.wx2dev(output_text)
+        trans_output = dt.slp2dev(dt.wx2slp(output_text))
         num_map = str.maketrans('०१२३४५६७८९', '0123456789')
         trans_output = trans_output.translate(num_map)
         trans_enc = "deva"
     elif output_enc == "roma":
-        trans_output = dt.wx2iast(output_text)
+        trans_output = dt.slp2iast(dt.wx2slp(output_text))
         trans_enc = "roma"
     else:
         trans_output = output_text
