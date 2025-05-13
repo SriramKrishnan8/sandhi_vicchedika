@@ -3,6 +3,7 @@
 import os
 import sys
 import subprocess as sp
+import psutil
 
 import argparse
 import multiprocessing as mp
@@ -22,7 +23,17 @@ segmentation_modes = {
     "best" : "l"
 }
 
+text_types = {
+    "word" : "f",
+    "sent" : "t"
+}
+
 cgi_file = "./interface2"
+# If Sanskrit Heritage Platform is already installed, 
+# uncomment the following and replace with your cgi bin path
+# cgi_file = "/usr/lib/cgi-bin/SKT/sktgraph2"
+
+time_out = 30
 
 
 def remove_svaras(text):
@@ -86,11 +97,13 @@ def input_transliteration(input_text, input_enc):
     trans_enc = ""
     
     if input_enc == "DN":
-        trans_input = dt.dev2wx(input_text)
+        trans_input = dt.slp2wx(dt.dev2slp(input_text))
+        trans_input = trans_input.replace("ळ्", "d")
         trans_input = trans_input.replace("ळ", "d")
+        trans_input = trans_input.replace("kdp", "kLp")
         trans_enc = "WX"
     elif input_enc == "RN":
-        trans_input = dt.iast2wx(input_text)
+        trans_input = dt.slp2wx(dt.iast2slp(input_text))
         trans_enc = "WX"
     else:
         trans_input = input_text
@@ -116,12 +129,12 @@ def output_transliteration(output_text, output_enc):
     trans_enc = ""
     
     if output_enc == "deva":
-        trans_out = dt.wx2dev(output_text)
+        trans_output = dt.slp2dev(dt.wx2slp(output_text))
         num_map = str.maketrans('०१२३४५६७८९', '0123456789')
-        trans_output = trans_out.translate(num_map)
+        trans_output = trans_output.translate(num_map)
         trans_enc = "deva"
     elif output_enc == "roma":
-        trans_output = dt.wx2iast(output_text)
+        trans_output = dt.slp2iast(dt.wx2slp(output_text))
         trans_enc = "roma"
     else:
         trans_output = output_text
@@ -131,19 +144,18 @@ def output_transliteration(output_text, output_enc):
 
 
 def run_sh(cgi_file, input_text, input_encoding, lex="MW", us="f",
-           output_encoding="roma", segmentation_mode="b", stemmer="t"):
+           output_encoding="roma", segmentation_mode="b", text_type="t", stemmer="t"):
     """ Runs the cgi file with a given word.  
         
         Returns a JSON
     """
-    
-    time_out = 30
     
     out_enc = output_encoding if output_encoding in ["roma", "deva"] else "roma"
     
     env_vars = [
         "lex=" + lex,
         "us=" + us,
+        "st=" + text_type,
         "font=" + out_enc,
         "t=" + input_encoding,
         "text=" + input_text,#.replace(" ", "+"),
@@ -259,53 +271,78 @@ def get_morphological_analyses(input_out_enc, result_json, out_enc):
     return analysis_json
     
 
-def handle_result(result, input_word, output_enc, issue):
-    """ Returns the results from the JSON
-    """
+def extract_result(result):
+    """ Extracts Result as JSON
+    """ 
     
     result_json = {}
-    status = "Failure"
-
-    # print(result)
-
+    
     if result:
         try:
             result_str = result.split("\n")[-1]
             result_json = json.loads(result_str)
-        except e:
+        except Exception as e:
             result_json = {}
     
+    return result_json
+
+
+def handle_result(result, input_word, output_enc, issue, text_type):
+    """ Returns the results from the JSON
+    """
+    
+    status = "Failure"
+    
+    # print(result)
+    
+    result_json = extract_result(result)
+
     seg = result_json.get("segmentation", [])
     morphs = result_json.get("morph", [])
 
     if seg:
         if "error" in seg[0]:
             status = "Error"
-        elif "#" in seg[0]:
+            message = seg[0]
+        elif ("#" in seg[0] or "?" in seg[0]) and (text_type == "w" or " " not in seg[0]):
             status = "Unrecognized"
+            message = "SH could not recognize at least on chunk / word"
         else:
             status = "Success"
     else:
         if issue == "Timeout":
             status = "Timeout"
+            message = "SH could not produce the response within " + str(time_out) + "s"
         elif issue == "input":
             status = "Error"
-            seg = ["Error in Input / Output Convention. Please check the input"]
+#            seg = ["Error in Input / Output Convention. Please check the input"]
+            message = "Error in Input / Output Convention. Please check the input"
         else:
             status = "Unknown Anomaly"
+            message = "An unknown error occurred"
 
     morph_analysis = {}
     
-    if status in ["Failure", "Timeout", "Unknown Anomaly"]:
+    if status == "Timeout":
+        morph_analysis["input"] = input_word
+        morph_analysis["status"] = "timeout"
+        morph_analysis["error"] = message
+    elif status == "Unknown Anomaly":
+        morph_analysis["input"] = input_word
+        morph_analysis["status"] = issue
+        morph_analysis["error"] = message
+    elif status == "Failure":
         morph_analysis["input"] = input_word
         morph_analysis["status"] = "failed"
+        morph_analysis["error"] = message
     elif status == "Error":
         morph_analysis["input"] = input_word
         morph_analysis["status"] = "error"
-        morph_analysis["error"] = seg[0]
+        morph_analysis["error"] = message
     elif status == "Unrecognized":
         morph_analysis["input"] = input_word
         morph_analysis["status"] = "unrecognized"
+        morph_analysis["error"] = message
     else: # Success
         morph_analysis = get_morphological_analyses(input_word, result_json, output_enc)
     
@@ -314,7 +351,7 @@ def handle_result(result, input_word, output_enc, issue):
 
 def run_sh_text(cgi_file, input_word, input_encoding, lex="MW",
                 us="f", output_encoding="roma",
-                segmentation_mode="b", stemmer="t"):
+                segmentation_mode="b", text_type="t", stemmer="t"):
     """ Handles morphological analyses for the given input word
     """
     
@@ -333,14 +370,14 @@ def run_sh_text(cgi_file, input_word, input_encoding, lex="MW",
 
         result, issue = run_sh(
             cgi_file, trans_input, trans_enc, lex, us, output_encoding, 
-            segmentation_mode, stemmer
+            segmentation_mode, text_type, stemmer
         )
     except Exception as e:
         result = ""
         issue = "input"
     
     morph_analysis = handle_result(
-        result, input_word_out_enc, output_encoding, issue
+        result, input_word_out_enc, output_encoding, issue, text_type
     )
 
     return morph_analysis
@@ -348,14 +385,14 @@ def run_sh_text(cgi_file, input_word, input_encoding, lex="MW",
 
 def process_words_subset(input_list, cgi_file, input_encoding, lex, us,
                         output_encoding, segmentation_mode, stemmer,
-                        start, end, result_queue):
+                        text_type, start, end, result_queue):
     """ """
     
     results = []
     for input_word in input_list[start:end]:
         res = run_sh_text(
             cgi_file, input_word, input_encoding, lex, us, output_encoding,
-            segmentation_mode, stemmer
+            segmentation_mode, text_type, stemmer
         )
         results.append(res)
     
@@ -363,7 +400,7 @@ def process_words_subset(input_list, cgi_file, input_encoding, lex, us,
 
 
 def run_sh_parallely(input_list, cgi_file, input_encoding, lex, us,
-                     output_encoding, segmentation_mode, stemmer):
+                     output_encoding, segmentation_mode, text_type, stemmer):
     """ """
     
     num_processes = mp.cpu_count()
@@ -377,7 +414,7 @@ def run_sh_parallely(input_list, cgi_file, input_encoding, lex, us,
     for chunk in chunks:
         cur_args = (
             chunk, cgi_file, input_encoding, lex, us, output_encoding,
-            segmentation_mode, stemmer, 0, len(chunk), result_queue
+            segmentation_mode, text_type, stemmer, 0, len(chunk), result_queue
         )
         process = mp.Process(target=process_words_subset, args=cur_args)
         processes.append(process)
@@ -394,7 +431,7 @@ def run_sh_parallely(input_list, cgi_file, input_encoding, lex, us,
     
 
 def run_sh_sequentially(input_list, cgi_file, input_encoding, lex, us,
-                        output_encoding, segmentation_mode, stemmer):
+                        output_encoding, segmentation_mode, text_type, stemmer):
     """ """
     
     output_list = []
@@ -403,7 +440,7 @@ def run_sh_sequentially(input_list, cgi_file, input_encoding, lex, us,
 
         morph_analysis = run_sh_text(
             cgi_file, input_word, input_encoding, lex, us, output_encoding,
-            segmentation_mode, stemmer
+            segmentation_mode, text_type, stemmer
         )
         
         output_list.append(morph_analysis)
@@ -413,7 +450,7 @@ def run_sh_sequentially(input_list, cgi_file, input_encoding, lex, us,
 
 def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
                 us="f", output_encoding="roma", segmentation_mode="b",
-                stemmer="t"):
+                text_type="t", stemmer="t"):
     """ Handles morphological analyses for all the sentences in a file
     """
 
@@ -439,12 +476,12 @@ def run_sh_file(cgi_file, input_file, output_file, input_encoding, lex="MW",
     if parallel:
         output_list = run_sh_parallely(
             input_list, cgi_file, input_encoding, lex, us, output_encoding,
-            segmentation_mode, stemmer
+            segmentation_mode, text_type, stemmer
         )
     else:
         output_list = run_sh_sequentially(
             input_list, cgi_file, input_encoding, lex, us, output_encoding,
-            segmentation_mode, stemmer
+            segmentation_mode, text_type, stemmer
         )
     
     with open(output_file, 'w', encoding='utf-8') as out_file:
@@ -471,6 +508,11 @@ def main():
         "output_enc", default="roma",
         choices=["deva", "roma", "WX"],
         help="output encoding"
+    )
+    parser.add_argument(
+        "text_type", default="sent",
+        choices=["word", "sent"],
+        help="input text type"
     )
     parser.add_argument(
         "seg_mode", default="first",
@@ -501,6 +543,7 @@ def main():
     input_enc = args.input_enc
     output_enc = args.output_enc
     seg_mode = segmentation_modes.get(args.seg_mode, "f")
+    txt_type = text_types.get(args.text_type, "t")
     
     if args.input_file:
         i_file = args.input_file.name
@@ -508,13 +551,13 @@ def main():
         run_sh_file(
             cgi_file, i_file, o_file, input_enc, lex="MW",
             us="f", output_encoding=output_enc,
-            segmentation_mode=seg_mode, stemmer="t"
+            segmentation_mode=seg_mode, text_type=txt_type, stemmer="t"
         )
     elif args.input_text:
         res = run_sh_text(
             cgi_file, args.input_text, input_enc, lex="MW",
             us="f", output_encoding=output_enc,
-            segmentation_mode=seg_mode, stemmer="t"
+            segmentation_mode=seg_mode, text_type=txt_type, stemmer="t"
         )
         if args.output_file:
             with open(args.output_file.name, 'w', encoding='utf-8') as o_file:
